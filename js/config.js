@@ -1,8 +1,9 @@
-// Connexion au projet Supabase « prospect-salon » (organisation Intérim Qualité).
+// Connexion au projet Supabase « prospection-salon » (organisation Intérim Qualité,
+// compte Supabase ouvert avec le GitHub Interim-qualite75 — séparé de RH Project).
 // La clé publique est faite pour être dans l'app : la sécurité est assurée
 // par les règles de la base (chacun ne voit que ses propres fiches).
-export const SUPABASE_URL = 'https://zmaeeaoyupdvvwnbyefb.supabase.co';
-export const SUPABASE_CLE_PUBLIQUE = 'sb_publishable_KCdEnag85DoV-Uy9zfWjtQ_AEO551S7';
+export const SUPABASE_URL = 'https://ejtrsiibmutofinwkfmi.supabase.co';
+export const SUPABASE_CLE_PUBLIQUE = 'sb_publishable_XefQbk-aSuU75lyPfqn8wQ_1E0rAZJ5';
 
 // Coordonnées proposées au premier lancement (modifiables dans Réglages).
 // Ce fichier est public une fois en ligne : le portable se saisit dans Réglages
