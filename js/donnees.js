@@ -43,6 +43,7 @@ export const etat = {
   prospects: new Map(),
   echanges: new Map(),
   documents: new Map(),
+  taches: new Map(),
   file: [],          // modifications en attente d'envoi
   echecs: [],        // modifications refusées par le serveur
   derniereSynchro: null,
@@ -50,7 +51,7 @@ export const etat = {
   synchroEnCours: false,
 };
 
-const TABLES = ['prospects', 'echanges', 'documents'];
+const TABLES = ['prospects', 'echanges', 'documents', 'taches'];
 const cle = (nom) => `${etat.utilisateur.id}:${nom}`;
 
 async function sauverCache() {
@@ -59,6 +60,7 @@ async function sauverCache() {
     prospects: [...etat.prospects.values()],
     echanges: [...etat.echanges.values()],
     documents: [...etat.documents.values()],
+    taches: [...etat.taches.values()],
     derniereSynchro: etat.derniereSynchro,
   });
 }
@@ -97,6 +99,17 @@ export const echangesDe = (prospectId) =>
     .filter((e) => e.prospect_id === prospectId)
     .sort((a, b) => (b.date_echange || '').localeCompare(a.date_echange || ''));
 
+// Tâches à faire : en retard et urgentes d'abord, puis par échéance
+const RANG_PRIORITE = { urgente: 0, normale: 1, faible: 2 };
+export const listeTaches = ({ prospectId, faites = false } = {}) =>
+  [...etat.taches.values()]
+    .filter((t) => !!t.faite === faites && (!prospectId || t.prospect_id === prospectId))
+    .sort((a, b) =>
+      faites
+        ? (b.faite_at || '').localeCompare(a.faite_at || '')
+        : (RANG_PRIORITE[a.priorite] ?? 1) - (RANG_PRIORITE[b.priorite] ?? 1) ||
+          (a.echeance || '9').localeCompare(b.echeance || '9'));
+
 export const listeDocuments = () =>
   [...etat.documents.values()].sort((a, b) => a.ordre - b.ordre || (a.created_at || '').localeCompare(b.created_at || ''));
 
@@ -121,6 +134,7 @@ export function supprimer(table, id) {
   etat[table].delete(id);
   if (table === 'prospects') {
     for (const e of [...etat.echanges.values()]) if (e.prospect_id === id) etat.echanges.delete(e.id);
+    for (const t of [...etat.taches.values()]) if (t.prospect_id === id) etat.taches.delete(t.id);
   }
   // Inutile d'envoyer une création qui n'est jamais partie
   etat.file = etat.file.filter((op) => !(op.table === table && op.id === id && op.type === 'upsert'));
@@ -177,9 +191,12 @@ function ajouterALaFile(op) {
 const erreurReseau = (e) =>
   !navigator.onLine || e?.name === 'TypeError' || /fetch|network|Failed to|Load failed/i.test(e?.message || '');
 
+const tableAbsente = (e) => /PGRST205|42P01/.test(e?.code || '') || /could not find the table|does not exist/i.test(e?.message || '');
+
 let envoiEnCours = null;
 export function envoyer() {
   envoiEnCours ??= (async () => {
+    const enAttente = [];   // tâches gardées tant que la table n'existe pas sur le serveur
     try {
       while (etat.file.length && navigator.onLine) {
         const op = etat.file[0];
@@ -188,13 +205,20 @@ export function envoyer() {
           etat.file.shift();
         } catch (e) {
           if (erreurReseau(e)) break;
-          console.error('Envoi refusé', op, e);
-          etat.echecs.push({ op, erreur: e.message || String(e), le: new Date().toISOString() });
+          if (op.table === 'taches' && tableAbsente(e)) enAttente.push(op);
+          else {
+            console.error('Envoi refusé', op, e);
+            etat.echecs.push({ op, erreur: e.message || String(e), le: new Date().toISOString() });
+          }
           etat.file.shift();
         }
         await sauverFile();
       }
     } finally {
+      if (enAttente.length) {
+        etat.file.push(...enAttente);
+        await sauverFile();
+      }
       envoiEnCours = null;
       signaler('file');
     }
@@ -237,16 +261,21 @@ export async function synchroniser() {
   signaler('synchro');
   try {
     await envoyer();
-    const [pr, ec, dc, pf] = await Promise.all([
+    const [pr, ec, dc, pf, ta] = await Promise.all([
       supabase.from('prospects').select('*'),
       supabase.from('echanges').select('*'),
       supabase.from('documents').select('*'),
       supabase.from('profil').select('*').maybeSingle(),
+      supabase.from('taches').select('*'),
     ]);
     for (const r of [pr, ec, dc, pf]) if (r.error) throw r.error;
     etat.prospects = new Map(pr.data.map((r) => [r.id, r]));
     etat.echanges = new Map(ec.data.map((r) => [r.id, r]));
     etat.documents = new Map(dc.data.map((r) => [r.id, r]));
+    // Table « taches » absente tant que ajout-taches.sql n'a pas été exécuté : on garde la copie locale
+    etat.tachesServeur = !ta.error;
+    if (!ta.error) etat.taches = new Map(ta.data.map((r) => [r.id, r]));
+    else console.warn('Tâches non synchronisées', ta.error.message);
     if (pf.data) etat.profil = pf.data;
     else if (!etat.profil) enregistrerProfil({});   // premier lancement : crée le profil par défaut
     // Réapplique ce qui n'est pas encore parti

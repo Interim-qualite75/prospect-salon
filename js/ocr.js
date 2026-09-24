@@ -42,21 +42,62 @@ function chargerTesseract() {
   });
 }
 
-export async function lireTexte(image, surProgression = () => {}) {
+let progressionEnCours = () => {};
+
+async function preparerTesseract(surProgression) {
+  progressionEnCours = surProgression;
   const Tesseract = await chargerTesseract();
   if (!travailleur) {
     surProgression(0.05, 'Préparation de la lecture…');
     travailleur = await Tesseract.createWorker(['fra', 'eng'], 1, {
       logger: (m) => {
-        if (m.status === 'recognizing text') surProgression(0.3 + m.progress * 0.7, 'Lecture de la carte…');
-        else if (m.status?.startsWith('loading')) surProgression(0.05 + (m.progress || 0) * 0.25, 'Préparation de la lecture…');
+        if (m.status === 'recognizing text') progressionEnCours(0.3 + m.progress * 0.7, 'Lecture de la carte…');
+        else if (m.status?.startsWith('loading')) progressionEnCours(0.05 + (m.progress || 0) * 0.25, 'Préparation de la lecture…');
       },
     });
   }
-  const canvas = redimensionner(image, 2000, { niveauxDeGris: true, contraste: 1.3 });
-  const { data } = await travailleur.recognize(canvas);
+  return travailleur;
+}
+
+function tourner(c, degres) {
+  if (!degres) return c;
+  const r = document.createElement('canvas');
+  [r.width, r.height] = degres === 180 ? [c.width, c.height] : [c.height, c.width];
+  const x = r.getContext('2d');
+  x.translate(r.width / 2, r.height / 2);
+  x.rotate((degres * Math.PI) / 180);
+  x.drawImage(c, -c.width / 2, -c.height / 2);
+  return r;
+}
+
+export async function lireTexte(image, surProgression = () => {}) {
+  const w = await preparerTesseract(surProgression);
+  const { data } = await w.recognize(redimensionner(image, 2000, { niveauxDeGris: true, contraste: 1.3 }));
   surProgression(1, 'Terminé');
   return data.text || '';
+}
+
+// Points des champs vraiment utiles : du texte lu à l'envers donne surtout du bruit
+const valeurLecture = (c) =>
+  (c.email ? 3 : 0) + (c.tel_mobile || c.tel_fixe ? 3 : 0) + (c.nom ? 2 : 0) + (c.fonction ? 1 : 0) + (c.code_postal ? 1 : 0);
+
+// Lit la carte ; si le résultat est pauvre, réessaie en tournant la photo
+// (carte photographiée de travers ou téléphone tenu dans l'autre sens).
+export async function lireCarte(image, surProgression = () => {}) {
+  const w = await preparerTesseract(surProgression);
+  const base = redimensionner(image, 2000, { niveauxDeGris: true, contraste: 1.3 });
+  let meilleur = null;
+  for (const degres of [0, 90, 270, 180]) {
+    if (degres) surProgression(0.3, 'Carte de travers ? Nouvel essai…');
+    const { data } = await w.recognize(tourner(base, degres));
+    const texte = data.text || '';
+    const champs = analyserTexte(texte);
+    const note = valeurLecture(champs) + (data.confidence || 0) / 100;
+    if (!meilleur || note > meilleur.note) meilleur = { texte, champs, note };
+    if (valeurLecture(champs) >= 5) break;
+  }
+  surProgression(1, 'Terminé');
+  return meilleur;
 }
 
 // ---------- Reconnaissance des champs dans le texte lu ----------
@@ -410,8 +451,21 @@ const SCHEMA_CR = {
     besoins: { type: 'array', items: { type: 'string' } },
     prochaine_action: { type: 'string' },
     relance_dans_jours: { type: 'integer' },
+    taches: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          titre: { type: 'string' },
+          priorite: { type: 'string', enum: ['urgente', 'normale', 'faible'] },
+          echeance_dans_jours: { type: 'integer' },
+        },
+        required: ['titre', 'priorite', 'echeance_dans_jours'],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ['compte_rendu', 'besoins', 'prochaine_action', 'relance_dans_jours'],
+  required: ['compte_rendu', 'besoins', 'prochaine_action', 'relance_dans_jours', 'taches'],
   additionalProperties: false,
 };
 
@@ -432,7 +486,61 @@ export async function mettreEnFormeCR(texte, contexte, cle) {
           `Notes dictées (brutes, avec possibles erreurs de dictée) :\n"""${texte}"""\n\n` +
           'Réécris un compte rendu clair et factuel en français (phrases courtes ou puces « - »), sans rien inventer. ' +
           'Liste les besoins identifiés (postes, volumes, période), la prochaine action concrète, ' +
-          "et dans combien de jours relancer (0 s'il n'y a rien à relancer).",
+          "et dans combien de jours relancer (0 s'il n'y a rien à relancer). " +
+          'Liste enfin les tâches concrètes à réaliser par la responsable d’agence (verbe à l’infinitif, une ligne chacune), ' +
+          'avec une priorité : « urgente » si un engagement ou une échéance proche en dépend, « normale » sinon, ' +
+          '« faible » pour ce qui peut attendre ; et une échéance en jours à partir d’aujourd’hui (0 = aujourd’hui). ' +
+          'Uniquement les tâches mentionnées ou clairement implicites dans les notes.',
+      },
+    ],
+  });
+  return JSON.parse(texteReponse(msg));
+}
+
+// ---------- Synthèses (un prospect, un salon, une période) ----------
+const SCHEMA_SYNTHESE = {
+  type: 'object',
+  properties: {
+    titre: { type: 'string' },
+    resume: { type: 'string' },
+    sections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { titre: { type: 'string' }, points: { type: 'array', items: { type: 'string' } } },
+        required: ['titre', 'points'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['titre', 'resume', 'sections'],
+  additionalProperties: false,
+};
+
+// donnees : texte déjà préparé (fiche(s), comptes rendus, tâches) ; sujet : « prospect » ou « ensemble »
+export async function synthetiser(donnees, { sujet, intitule, societe }, cle) {
+  const client = await clientClaude(cle);
+  const consigne = sujet === 'prospect'
+    ? 'Rédige la synthèse de ce prospect : qui il est (personne, entreprise, secteur), historique des échanges, ' +
+      'besoins identifiés, où en est la relation, points de vigilance, et prochaines actions classées par priorité.'
+    : 'Rédige la synthèse de cet ensemble de prospects : chiffres clés (nombre, répartition par étape et par secteur), ' +
+      'prospects les plus prometteurs et pourquoi, besoins repérés (postes, volumes), et plan d’actions classé par priorité ' +
+      '(qui relancer, quand, pour quoi).';
+  const msg = await client.beta.messages.create({
+    model: 'claude-opus-5',
+    max_tokens: 16000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA_SYNTHESE } },
+    messages: [
+      {
+        role: 'user',
+        content:
+          `Tu aides une responsable d'agence d'intérim (${societe || 'Intérim Qualité'}) à suivre sa prospection commerciale.\n` +
+          `Objet de la synthèse : ${intitule}.\n\nDonnées :\n"""\n${donnees}\n"""\n\n` +
+          `${consigne} Écris en français, de façon claire et factuelle, sans rien inventer au-delà des données. ` +
+          'Le résumé fait 3 à 5 phrases. Chaque section a un titre court et des points d’une ligne. ' +
+          'N’écris pas de mise en forme Markdown (pas d’astérisques ni de dièses).',
       },
     ],
   });

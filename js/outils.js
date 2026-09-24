@@ -2,6 +2,7 @@
 
 import { creerVCard, telLisible, urlComplete } from './vcard.js';
 import { nomComplet } from './ui.js';
+import { secteurDe, dirigeantDe } from './entreprise.js';
 
 // ============================================================
 //  Agenda : la relance devient un rendez-vous avec alarme
@@ -218,7 +219,11 @@ export function exportExcel(prospects, echangesDe) {
     ['Besoins', (p) => (p.besoins || []).join(', ')],
     ['Relance', (p) => (p.relance_at && !p.relance_faite ? new Date(p.relance_at).toLocaleString('fr-FR') : '')],
     ['Motif relance', (p) => (p.relance_faite ? '' : p.relance_motif)],
-    ['Activité', (p) => [p.entreprise?.naf, p.entreprise?.activite].filter(Boolean).join(' – ')],
+    ['SIRET', (p) => p.entreprise?.siret],
+    ["Secteur d'activité", (p) => secteurDe(p.entreprise)],
+    ['Code NAF', (p) => p.entreprise?.naf],
+    ['Libellé NAF', (p) => p.entreprise?.naf_libelle || p.entreprise?.activite],
+    ['Dirigeant principal', (p) => dirigeantDe(p.entreprise)],
     ['Effectif', (p) => p.entreprise?.effectif],
     ["Chiffre d'affaires", (p) => p.entreprise?.ca ?? ''],
     ['Dirigeants', (p) => (p.entreprise?.dirigeants || []).map((d) => `${d.nom} (${d.qualite})`).join(', ')],

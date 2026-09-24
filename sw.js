@@ -2,7 +2,7 @@
 // Les fichiers de l'app sont pris sur le réseau en priorité (donc toujours à jour),
 // et la copie locale sert quand il n'y a pas de connexion (salon sans Wi-Fi).
 
-const VERSION = 'v2';
+const VERSION = 'v6';
 const CACHE_APP = `app-${VERSION}`;
 const CACHE_LIBS = 'bibliotheques';
 
@@ -19,6 +19,7 @@ const FICHIERS_APP = [
   'js/outils.js',
   'js/qr.js',
   'js/relances.js',
+  'js/syntheses.js',
   'js/ui.js',
   'js/vcard.js',
   'js/vues/accueil.js',
@@ -27,6 +28,7 @@ const FICHIERS_APP = [
   'js/vues/prospects.js',
   'js/vues/reglages.js',
   'js/vues/scanner.js',
+  'js/vues/taches.js',
   'img/logo-interim-qualite.png',
   'icones/icone-192.png',
   'icones/icone-512.png',

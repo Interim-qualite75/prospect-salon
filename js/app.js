@@ -9,6 +9,7 @@ import * as prospects from './vues/prospects.js';
 import * as fiche from './vues/fiche.js';
 import * as partager from './vues/partager.js';
 import * as reglages from './vues/reglages.js';
+import * as taches from './vues/taches.js';
 
 const ROUTES = {
   accueil: { vue: accueil, titre: 'Accueil', menu: 'accueil' },
@@ -18,6 +19,7 @@ const ROUTES = {
   nouveau: { vue: fiche, titre: 'Nouvelle fiche', menu: 'scanner', retour: true },
   partager: { vue: partager, titre: 'Partager mes infos', menu: 'partager' },
   reglages: { vue: reglages, titre: 'Réglages', menu: 'reglages' },
+  taches: { vue: taches, titre: 'Mes tâches', menu: 'accueil', retour: true },
 };
 
 let nettoyage = null;
@@ -167,7 +169,7 @@ evenements.addEventListener('change', (e) => {
   majIndicateurs();
   // Les listes se mettent à jour d'elles-mêmes quand des données arrivent
   const { nom } = lireRoute();
-  if (e.detail === 'tout' && ['accueil', 'prospects', 'partager'].includes(nom) && !document.querySelector('dialog[open]')) afficherRoute();
+  if (e.detail === 'tout' && ['accueil', 'prospects', 'partager', 'taches'].includes(nom) && !document.querySelector('dialog[open]')) afficherRoute();
 });
 addEventListener('online', majIndicateurs);
 addEventListener('offline', majIndicateurs);

@@ -321,3 +321,32 @@ label.btn { cursor: pointer; }
 .chargement { display: grid; place-items: center; min-height: 60vh; color: var(--texte-2); }
 .spinner { width: 28px; height: 28px; border: 3px solid var(--bord); border-top-color: var(--bleu); border-radius: 50%; animation: tourne 0.8s linear infinite; }
 @keyframes tourne { to { transform: rotate(360deg); } }
+
+/* ---------- Tâches ---------- */
+.pastille.urgente { background: var(--rouge-fond); color: var(--rouge); }
+.pastille.faible { background: var(--gris-fond); color: var(--texte-3); }
+.puce.urgente[aria-pressed='true'] { background: var(--rouge-fond); border-color: var(--rouge); color: var(--rouge); }
+.puce.faible[aria-pressed='true'] { background: var(--gris-fond); border-color: var(--texte-3); color: var(--texte); }
+.texte-retard { color: var(--rouge); }
+.element.tache { min-height: 56px; }
+.element.tache .corps b { white-space: normal; }
+.element.tache.faite .corps b { text-decoration: line-through; color: var(--texte-3); font-weight: 500; }
+.case {
+  flex: none; width: 26px; height: 26px; border-radius: 7px; border: 2px solid var(--bord-fort); background: var(--surface);
+  display: grid; place-items: center; cursor: pointer; color: var(--sur-bleu); padding: 0;
+}
+.case[aria-checked='true'] { background: var(--bleu); border-color: var(--bleu); }
+.case .ic { width: 16px; height: 16px; }
+.case:focus-visible { outline: 2px solid var(--bleu); outline-offset: 2px; }
+.tache-proposee { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--bord); }
+.tache-proposee:first-child { border-top: 0; }
+.tache-proposee select { width: auto; }
+details.carte summary { cursor: pointer; font-weight: 600; }
+
+/* ---------- Synthèses ---------- */
+.synthese { background: var(--surface-2); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 16px; }
+.synthese h3 { color: var(--bleu); font-size: 1.15rem; }
+.synthese h4 { color: var(--bleu); margin: 14px 0 4px; font-size: 1rem; }
+.synthese p { margin: 6px 0; }
+.synthese ul { margin: 0; padding-left: 20px; }
+.synthese li { margin: 3px 0; }

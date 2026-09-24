@@ -30,6 +30,40 @@ const SECTIONS = {
   R: 'Arts, spectacles et loisirs', S: 'Autres activités de services', T: 'Services aux ménages', U: 'Organisations extraterritoriales',
 };
 
+// Section (A…U) d'un code NAF, d'après sa division (2 premiers chiffres)
+const DIVISIONS = [[3, 'A'], [9, 'B'], [33, 'C'], [35, 'D'], [39, 'E'], [43, 'F'], [47, 'G'], [53, 'H'], [56, 'I'],
+  [63, 'J'], [66, 'K'], [68, 'L'], [75, 'M'], [82, 'N'], [84, 'O'], [85, 'P'], [88, 'Q'], [93, 'R'], [96, 'S'], [98, 'T'], [99, 'U']];
+function sectionDepuisNaf(naf) {
+  const d = parseInt(naf, 10);
+  return Number.isNaN(d) ? '' : DIVISIONS.find(([max]) => d <= max)?.[1] || '';
+}
+
+// Secteur d'activité lisible, y compris pour les fiches enregistrées avant l'ajout de ce champ
+export const secteurDe = (e) => e?.secteur || SECTIONS[sectionDepuisNaf(e?.naf)] || '';
+export const dirigeantDe = (e) => {
+  const d = e?.dirigeants?.[0];
+  return d ? `${d.nom}${d.qualite ? ` (${d.qualite})` : ''}` : '';
+};
+
+// Libellés officiels des codes NAF (liste INSEE, chargée une fois puis gardée hors ligne)
+const LISTE_NAF = 'https://cdn.jsdelivr.net/npm/@socialgouv/codes-naf@1.1.1/index.json';
+let libellesNaf;
+async function chargerLibellesNaf() {
+  libellesNaf ??= fetch(LISTE_NAF)
+    .then((r) => r.json())
+    .then((liste) => new Map(liste.map((x) => [x.id, x.label])))
+    .catch(() => {
+      libellesNaf = null;   // on réessaiera à la prochaine recherche
+      return new Map();
+    });
+  return libellesNaf;
+}
+
+async function avecLibelles(e) {
+  const noms = await chargerLibellesNaf();
+  return { ...e, naf_libelle: e.naf_libelle || noms.get(e.naf) || '', secteur: secteurDe(e) };
+}
+
 // N° de TVA intracommunautaire calculé depuis le SIREN
 export function tvaDepuisSiren(siren) {
   if (!/^\d{9}$/.test(siren || '')) return '';
@@ -60,7 +94,9 @@ function depuisEtat(r) {
     resultat: fin?.[1]?.resultat_net ?? null,
     annee_finances: fin?.[0] || null,
     dirigeants: (r.dirigeants || []).slice(0, 5).map((d) => ({
-      nom: d.type_dirigeant === 'personne morale' ? d.denomination : [d.prenoms?.split(' ')[0], d.nom].filter(Boolean).join(' '),
+      nom: d.type_dirigeant === 'personne morale'
+        ? d.denomination
+        : [d.prenoms?.split(' ')[0]?.toLowerCase().replace(/(^|-)(\p{L})/gu, (m, a, b) => a + b.toUpperCase()), d.nom].filter(Boolean).join(' '),
       qualite: d.qualite || '',
     })),
     tva: tvaDepuisSiren(r.siren),
@@ -76,7 +112,20 @@ export async function rechercher(texte) {
   if (rep.status === 429) throw new Error('Trop de recherches, réessayez dans quelques secondes');
   if (!rep.ok) throw new Error('Recherche entreprise indisponible');
   const json = await rep.json();
-  return (json.results || []).map(depuisEtat);
+  return Promise.all((json.results || []).map((r) => avecLibelles(depuisEtat(r))));
+}
+
+// Recherche automatique après un scan : on ne retient une entreprise que si on est sûr
+// (même nom que sur la carte, et même ville quand la carte en indique une).
+const compacte = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+export async function trouverEntreprise({ societe, ville, email }) {
+  const domaine = email?.split('@')[1]?.split('.')[0];
+  const nom = societe || domaine;
+  if (!nom || compacte(nom).length < 3) return null;
+  const resultats = (await rechercher(nom)).filter((r) => r.active !== false);
+  let memeNom = resultats.filter((r) => compacte(r.nom) === compacte(nom) || compacte(r.nom).startsWith(compacte(nom)));
+  if (memeNom.length > 1 && ville) memeNom = memeNom.filter((r) => compacte(r.ville) === compacte(ville));
+  return memeNom.length === 1 ? memeNom[0] : null;
 }
 
 // ---------- Pappers ----------
@@ -103,6 +152,8 @@ export async function fichePappers(siren, token) {
     nom: majuscules(e.nom_entreprise || e.denomination),
     forme_juridique: e.forme_juridique || '',
     naf: e.code_naf || '',
+    naf_libelle: e.libelle_code_naf || '',
+    secteur: SECTIONS[sectionDepuisNaf(e.code_naf)] || '',
     activite: e.libelle_code_naf || e.domaine_activite || '',
     adresse: [s.adresse_ligne_1, s.adresse_ligne_2].filter(Boolean).join(', '),
     code_postal: s.code_postal || '',

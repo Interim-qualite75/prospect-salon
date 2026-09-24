@@ -3,6 +3,8 @@ import { $, esc, icone, initiales, nomComplet, dateRelative, dansJours, toast } 
 import { classerRelances, notificationsPossibles, activerNotifications } from '../relances.js';
 import { telInternational } from '../vcard.js';
 import { ajouterCompteRendu } from './fiche.js';
+import { listeTaches } from '../donnees.js';
+import { ligneTache, brancherTaches, editerTache } from './taches.js';
 
 let filtre = 'tout';
 
@@ -21,6 +23,7 @@ export function afficher(vue, params, { aller }) {
     semaine: r.semaine,
   };
   const affichees = listes[filtre] || listes.tout;
+  const taches = listeTaches();
 
   vue.innerHTML = `
     <div class="pile">
@@ -53,6 +56,14 @@ export function afficher(vue, params, { aller }) {
         </section>
 
         <section class="pile">
+          <div class="carte pile-s">
+            <div class="ligne"><h2 class="espace">${icone('ok')} Mes tâches <span class="tres-discret">(${taches.length})</span></h2>
+              <button class="btn petit" id="nouvelle-tache">${icone('plus')} Ajouter</button></div>
+            ${taches.length
+              ? `<div class="liste" id="liste-taches">${taches.slice(0, 5).map((t) => ligneTache(t)).join('')}</div>`
+              : '<p class="discret">Aucune tâche à faire.</p>'}
+            <a class="btn petit fantome" href="#/taches">Voir toutes mes tâches</a>
+          </div>
           <div class="carte">
             <h2>${icone('agenda')} Salon en cours</h2>
             ${moi.salon_en_cours ? `
@@ -77,6 +88,12 @@ export function afficher(vue, params, { aller }) {
       afficher(vue, params, { aller });
     }),
   );
+
+  const rafraichir = () => afficher(vue, params, { aller });
+  if ($('#liste-taches', vue)) brancherTaches($('#liste-taches', vue), rafraichir);
+  $('#nouvelle-tache', vue).addEventListener('click', async () => {
+    if (await editerTache()) rafraichir();
+  });
 
   $('#activer-notif', vue)?.addEventListener('click', async () => {
     const rep = await activerNotifications();

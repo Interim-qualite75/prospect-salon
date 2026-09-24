@@ -2,7 +2,7 @@
 
 import { profil, enregistrerProfil } from '../donnees.js';
 import { $, esc, icone, toast } from '../ui.js';
-import { chargerImage, lireTexte, analyserTexte, lireCarteIA, lireQR, analyserQR, redimensionner, canvasEnBlob } from '../ocr.js';
+import { chargerImage, lireCarte, lireCarteIA, lireQR, analyserQR, redimensionner, canvasEnBlob } from '../ocr.js';
 import { definirBrouillon } from './fiche.js';
 
 export function afficher(vue, params, { aller }) {
@@ -65,8 +65,7 @@ export function afficher(vue, params, { aller }) {
         }
       }
       if (!Object.keys(champs).length) {
-        ocr_texte = await lireTexte(image, progression);
-        champs = analyserTexte(ocr_texte);
+        ({ texte: ocr_texte, champs } = await lireCarte(image, progression));
       }
       // Le QR code l'emporte ; la lecture de la carte complète ce qu'il ne donne pas
       const notes = [champsQR.notes, champs.notes].filter(Boolean).join('\n');

@@ -2,16 +2,20 @@
 
 import {
   etat, profil, enregistrer, supprimer, echangesDe, listeProspects, listeDocuments,
-  enregistrerPhotoCarte, urlPhotoCarte, nouvelId,
+  enregistrerPhotoCarte, urlPhotoCarte, nouvelId, listeTaches,
 } from '../donnees.js';
 import {
   $, $$, esc, icone, toast, modale, confirmer, nomComplet, dateRelative, dateCourte,
   versChampDateHeure, depuisChampDateHeure, dansJours, telecharger,
 } from '../ui.js';
-import { rechercher, completer, formaterEuros } from '../entreprise.js';
+import { rechercher, completer, formaterEuros, secteurDe, trouverEntreprise } from '../entreprise.js';
 import { brancherDictee, dicteeDisponible, fichierIcs, lienOutlook, lienGoogleAgenda, lienEmailSuivi, ETAPES } from '../outils.js';
 import { mettreEnFormeCR } from '../ocr.js';
 import { creerVCard, nomFichierVCard, telInternational } from '../vcard.js';
+import {
+  ligneTache, brancherTaches, editerTache, htmlTachesProposees, brancherTachesProposees, enregistrerTachesProposees,
+} from './taches.js';
+import { syntheseProspect } from '../syntheses.js';
 
 let brouillon = null;
 export function definirBrouillon(b) {
@@ -31,12 +35,21 @@ const zoneDictee = (nom, libelle, valeur, ph) => `
       <button type="button" class="micro" data-micro="${nom}" aria-label="Dicter" aria-pressed="false">${icone('micro')}</button>
     </div></label>`;
 
+function zoneTaches(prospectId) {
+  const l = listeTaches({ prospectId });
+  return l.length
+    ? `<div class="liste">${l.map((t) => ligneTache(t, { avecProspect: false })).join('')}</div>`
+    : '<p class="discret">Aucune tâche en cours pour ce prospect.</p>';
+}
+
 function blocEntreprise(e) {
   if (!e?.siren) return '';
   const lignes = [
     ['SIREN', e.siren.replace(/(\d{3})(?=\d)/g, '$1 ')],
+    ['SIRET', e.siret?.replace(/(\d{3})(\d{3})(\d{3})(\d{5})/, '$1 $2 $3 $4')],
     ['Forme', e.forme_juridique],
-    ['Activité', [e.naf, e.activite].filter(Boolean).join(' – ')],
+    ['Secteur', secteurDe(e)],
+    ['Code NAF', [e.naf, e.naf_libelle || (e.activite !== secteurDe(e) ? e.activite : '')].filter(Boolean).join(' – ')],
     ['Siège', [e.adresse, [e.code_postal, e.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')],
     ['Effectif', e.effectif],
     ['Création', e.date_creation && dateCourte(e.date_creation)],
@@ -106,6 +119,7 @@ export async function afficher(vue, params, { aller, titre }) {
             ${p.email ? `<a class="btn petit" href="mailto:${esc(p.email)}">${icone('mail')} Email</a>` : ''}
             <button type="button" class="btn petit" id="email-suivi">${icone('fichier')} Email de suivi</button>
             <button type="button" class="btn petit" id="vers-contacts">${icone('contact')} Dans mes contacts</button>
+            <button type="button" class="btn petit" id="synthese">${icone('ia')} Synthèse</button>
           </div>
         </div>` : ''}
 
@@ -161,6 +175,7 @@ export async function afficher(vue, params, { aller, titre }) {
               ? zoneDictee('compte_rendu', "Compte rendu de l'échange", '', 'Appuyez sur le micro et parlez : besoins, postes, volumes, prochaine étape…')
               : zoneDictee('notes', 'Notes générales', p.notes, 'Informations utiles sur ce prospect')}
             ${moi.ia_cle ? `<button type="button" class="btn petit" id="ia-cr">${icone('ia')} Mettre en forme avec l'IA</button>` : ''}
+            <div id="taches-proposees"></div>
             ${!dicteeDisponible ? `<p class="tres-discret">Astuce : utilisez le micro de votre clavier pour dicter.</p>` : ''}
           </section>
 
@@ -174,6 +189,13 @@ export async function afficher(vue, params, { aller, titre }) {
             ${champ('relance_motif', 'Motif', p.relance_faite ? '' : p.relance_motif, { ph: 'Rappeler pour devis, envoyer la plaquette…' })}
             <button type="button" class="btn" id="vers-agenda">${icone('agenda')} Ajouter à mon agenda (avec alarme)</button>
           </section>
+
+          ${!nouveau ? `
+            <section class="carte pile-s">
+              <div class="ligne"><h2 class="espace">${icone('ok')} Tâches</h2>
+                <button type="button" class="btn petit primaire" id="ajouter-tache">${icone('plus')} Ajouter</button></div>
+              <div id="zone-taches">${zoneTaches(p.id)}</div>
+            </section>` : ''}
 
           ${!nouveau ? `
             <section class="carte pile-s">
@@ -280,7 +302,35 @@ export async function afficher(vue, params, { aller, titre }) {
   // Entreprise
   $('#chercher-entreprise', vue).addEventListener('click', async () => {
     const q = form.elements.societe.value || form.elements.email.value.split('@')[1]?.split('.')[0] || '';
-    const e = await choisirEntreprise(q, moi.pappers_token);
+    appliquerEntreprise(await choisirEntreprise(q, moi.pappers_token));
+  });
+
+  // Après un scan : recherche automatique, retenue seulement si l'entreprise est trouvée sans ambiguïté
+  if (nouveau && !p.entreprise?.siren && (p.societe || p.email) && navigator.onLine) {
+    const bloc = $('#bloc-entreprise', vue);
+    bloc.innerHTML = '<div class="ligne discret"><div class="spinner"></div> Recherche de l’entreprise…</div>';
+    (async () => {
+      try {
+        const r = await trouverEntreprise({ societe: p.societe, ville: p.ville, email: p.email });
+        if (!bloc.isConnected || p.entreprise?.siren) return;
+        if (!r) {
+          bloc.innerHTML = '<p class="discret">Entreprise non trouvée automatiquement : appuyez sur « Rechercher ».</p>';
+          return;
+        }
+        let e = r;
+        try {
+          e = await completer(r, moi.pappers_token);
+        } catch (err) {
+          e = err.resultatDeSecours || r;
+        }
+        if (bloc.isConnected && !p.entreprise?.siren) appliquerEntreprise(e);
+      } catch {
+        if (bloc.isConnected) bloc.innerHTML = '<p class="discret">Recherche automatique indisponible : appuyez sur « Rechercher ».</p>';
+      }
+    })();
+  }
+
+  function appliquerEntreprise(e) {
     if (!e) return;
     p.entreprise = e;
     p.siren = e.siren;
@@ -293,7 +343,7 @@ export async function afficher(vue, params, { aller, titre }) {
     $('#bloc-entreprise', vue).innerHTML = blocEntreprise(e);
     $('#chercher-entreprise', vue).innerHTML = `${icone('loupe')} Changer`;
     modifie = true;
-  });
+  }
 
   // IA : mise en forme du compte rendu
   $('#ia-cr', vue)?.addEventListener('click', async (ev) => {
@@ -307,6 +357,8 @@ export async function afficher(vue, params, { aller, titre }) {
         form.elements.relance_at.value = versChampDateHeure(dansJours(r.relance_dans_jours));
         form.elements.relance_motif.value = r.prochaine_action || 'Rappeler';
       }
+      // Les tâches proposées (cochées) sont créées à l'enregistrement de la fiche
+      $('#taches-proposees', vue).innerHTML = htmlTachesProposees(r.taches);
       for (const besoin of r.besoins || []) {
         if (![...$$('[data-b]', vue)].some((x) => x.dataset.b.toLowerCase() === besoin.toLowerCase())) {
           const nb = document.createElement('button');
@@ -324,6 +376,15 @@ export async function afficher(vue, params, { aller, titre }) {
       ev.currentTarget.disabled = false;
     }
   });
+
+  // Tâches
+  brancherTachesProposees($('#taches-proposees', vue));
+  const majTaches = () => ($('#zone-taches', vue).innerHTML = zoneTaches(p.id));
+  if ($('#zone-taches', vue)) brancherTaches($('#zone-taches', vue), majTaches);
+  $('#ajouter-tache', vue)?.addEventListener('click', async () => {
+    if (await editerTache(null, { prospectId: p.id })) majTaches();
+  });
+  $('#synthese', vue)?.addEventListener('click', () => syntheseProspect(lireFormulaire()));
 
   // Actions d'une fiche existante
   $('#email-suivi', vue)?.addEventListener('click', () => {
@@ -413,12 +474,18 @@ export async function afficher(vue, params, { aller, titre }) {
     enregistrer('prospects', q);
     p = q;
     const cr = form.elements.compte_rendu?.value.trim();
+    let echange = null;
     if (nouveau && cr) {
-      enregistrer('echanges', { prospect_id: q.id, type: q.salon ? 'salon' : 'rdv', contenu: cr, date_echange: new Date().toISOString() });
+      echange = enregistrer('echanges', { prospect_id: q.id, type: q.salon ? 'salon' : 'rdv', contenu: cr, date_echange: new Date().toISOString() });
       form.elements.compte_rendu.value = '';
     }
+    const zoneProposees = $('#taches-proposees', vue);
+    const n = enregistrerTachesProposees(zoneProposees, { prospectId: q.id, echangeId: echange?.id });
+    zoneProposees.innerHTML = '';
+    if (n && !silencieux) toast(`Fiche enregistrée · ${n} tâche${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''}`, 'ok');
+    if ($('#zone-taches', vue)) $('#zone-taches', vue).innerHTML = zoneTaches(q.id);
     modifie = false;
-    if (!silencieux) toast('Fiche enregistrée', 'ok');
+    if (!silencieux && !n) toast('Fiche enregistrée', 'ok');
     return true;
   }
 
@@ -476,7 +543,7 @@ export async function choisirEntreprise(texteInitial, token) {
                 <button type="button" class="resultat-entreprise" data-i="${i}">
                   <b>${esc(r.nom)}</b> ${r.active === false ? '<span class="pastille retard">Fermée</span>' : ''}
                   <div class="discret">${esc([r.code_postal, r.ville].filter(Boolean).join(' '))} · SIREN ${esc(r.siren)}</div>
-                  <div class="tres-discret">${esc([r.naf, r.activite, r.effectif].filter(Boolean).join(' · '))}</div>
+                  <div class="tres-discret">${esc([r.naf, r.naf_libelle || r.activite, r.effectif].filter(Boolean).join(' · '))}</div>
                 </button>`).join('')
             : '<p class="discret">Aucune entreprise trouvée. Essayez un autre nom ou le SIREN.</p>';
         } catch (e) {
@@ -542,6 +609,7 @@ export async function ajouterCompteRendu(p, { depuisRelance = false } = {}) {
       ${champ('date_echange', 'Date', versChampDateHeure(new Date().toISOString()), { type: 'datetime-local' })}
       ${zoneDictee('contenu', 'Compte rendu', '', 'Appuyez sur le micro et parlez…')}
       ${moi.ia_cle ? `<button type="button" class="btn petit" id="ia">${icone('ia')} Mettre en forme avec l'IA</button>` : ''}
+      <div id="taches-ia"></div>
       <label class="champ"><span>Étape</span>
         <select name="etape">${Object.entries(ETAPES).map(([k, v]) => `<option value="${k}" ${p.etape === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <div class="champ"><span>Prochaine relance</span>
@@ -569,6 +637,7 @@ export async function ajouterCompteRendu(p, { depuisRelance = false } = {}) {
           else if (!d.querySelector('[name=relance_motif]').value) d.querySelector('[name=relance_motif]').value = 'Rappeler';
         }),
       );
+      brancherTachesProposees(d.querySelector('#taches-ia'));
       arret = brancherDictee(d.querySelector('[data-micro]'), d.querySelector('[name=contenu]'), {
         surEtat: (s) => s === null && toast('Dictée non disponible ici : utilisez le micro du clavier'),
       });
@@ -583,6 +652,7 @@ export async function ajouterCompteRendu(p, { depuisRelance = false } = {}) {
             d.querySelector('[name=relance_at]').value = versChampDateHeure(dansJours(r.relance_dans_jours));
             d.querySelector('[name=relance_motif]').value = r.prochaine_action || 'Rappeler';
           }
+          d.querySelector('#taches-ia').innerHTML = htmlTachesProposees(r.taches);
         } catch (e) {
           toast(`IA indisponible : ${e.message}`, 'erreur');
         } finally {
@@ -603,12 +673,13 @@ export async function ajouterCompteRendu(p, { depuisRelance = false } = {}) {
 
   const contenu = dlg.querySelector('[name=contenu]').value.trim();
   const relance = depuisChampDateHeure(dlg.querySelector('[name=relance_at]').value);
-  enregistrer('echanges', {
+  const echange = enregistrer('echanges', {
     prospect_id: p.id,
     type,
     contenu,
     date_echange: depuisChampDateHeure(dlg.querySelector('[name=date_echange]').value) || new Date().toISOString(),
   });
+  const nbTaches = enregistrerTachesProposees(dlg.querySelector('#taches-ia'), { prospectId: p.id, echangeId: echange.id });
   let etape = dlg.querySelector('[name=etape]').value;
   if (relance && etape === 'nouveau') etape = 'a_relancer';
   enregistrer('prospects', {
@@ -619,7 +690,7 @@ export async function ajouterCompteRendu(p, { depuisRelance = false } = {}) {
     relance_motif: relance ? dlg.querySelector('[name=relance_motif]').value.trim() : depuisRelance ? p.relance_motif : '',
     relance_faite: relance ? false : depuisRelance,
   });
-  toast('Compte rendu enregistré', 'ok');
+  toast(nbTaches ? `Compte rendu enregistré · ${nbTaches} tâche${nbTaches > 1 ? 's' : ''} ajoutée${nbTaches > 1 ? 's' : ''}` : 'Compte rendu enregistré', 'ok');
   if (relance && (await confirmer('Ajouter aussi cette relance à votre agenda ?', { ok: 'Oui, ajouter' }))) {
     await choisirAgenda({ ...p, relance_at: relance, relance_motif: dlg.querySelector('[name=relance_motif]').value.trim() });
   }

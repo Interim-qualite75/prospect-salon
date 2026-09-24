@@ -10,6 +10,18 @@ const champ = (nom, libelle, valeur, { type = 'text', auto = 'off', ph = '', mod
   <label class="champ"><span>${libelle}</span>
     <input name="${nom}" type="${type}" value="${esc(valeur ?? '')}" autocomplete="${auto}" placeholder="${esc(ph)}" ${mode ? `inputmode="${mode}"` : ''}></label>`;
 
+// Une clé masquée (points) laisse croire qu'elle n'est pas enregistrée : on l'annonce clairement
+const etatCle = (valeur) => valeur
+  ? `<p class="discret">${icone('ok')} Clé enregistrée (se termine par « ${esc(valeur.slice(-4))} »)</p>`
+  : '<p class="tres-discret">Aucune clé enregistrée.</p>';
+
+// Pappers renvoie plusieurs compteurs (abonnement, à l'unité…) : on additionne ce qui reste
+function lireCredits(c) {
+  if (typeof c !== 'object' || !c) return c;
+  const restants = Object.entries(c).filter(([k, v]) => /restant/i.test(k) && typeof v === 'number');
+  return restants.length ? restants.reduce((s, [, v]) => s + v, 0) : null;
+}
+
 export function afficher(vue) {
   const moi = profil();
   const notif = notificationsPossibles() ? Notification.permission : 'indisponible';
@@ -55,11 +67,12 @@ export function afficher(vue) {
           <h2>${icone('entreprise')} Recherche entreprise (Pappers)</h2>
           <p class="discret">Sans clé : Annuaire des entreprises gratuit. Avec une clé Pappers : chiffre d'affaires, dirigeants et fiche complète (1 crédit par prospect).</p>
           ${champ('pappers_token', 'Clé API Pappers', moi.pappers_token, { type: 'password', auto: 'off' })}
+          ${etatCle(moi.pappers_token)}
           <div class="ligne">
             <button class="btn" type="submit">${icone('ok')} Enregistrer</button>
             <button class="btn fantome" type="button" id="tester-pappers">Tester et voir mes crédits</button>
           </div>
-          <p class="tres-discret" id="credits"></p>
+          <p class="discret" id="credits" role="status"></p>
           <p class="tres-discret">Obtenir une clé : <a href="https://www.pappers.fr/api" target="_blank" rel="noopener">pappers.fr/api</a> → créer un compte avec votre email pro (100 crédits offerts).</p>
         </form>
 
@@ -67,6 +80,7 @@ export function afficher(vue) {
           <h2>${icone('ia')} Option IA (facultative)</h2>
           <p class="discret">Lecture des cartes plus fiable et mise en forme des comptes rendus dictés. Quelques centimes par utilisation, facturés par Anthropic.</p>
           ${champ('ia_cle', 'Clé API Claude', moi.ia_cle, { type: 'password', auto: 'off' })}
+          ${etatCle(moi.ia_cle)}
           <button class="btn" type="submit">${icone('ok')} Enregistrer</button>
         </form>
 
@@ -81,7 +95,7 @@ export function afficher(vue) {
           <h2>${icone('mobile')} Installer l'app (icône Intérim Qualité)</h2>
           ${estAppInstallee() ? '<p class="discret">L’app est installée sur cet appareil.</p>' : `
             ${window.invitationInstallation ? `<button class="btn primaire" id="installer">${icone('telecharger')} Installer sur cet appareil</button>` : ''}
-            <p class="discret"><b>iPhone</b> (Safari) : bouton Partager ${icone('envoyer')} → « Sur l’écran d’accueil ».</p>
+            <p class="discret"><b>iPhone</b> : ouvrez l’adresse dans <b>Safari</b> → bouton <b>•••</b> en bas à droite (ou Partager ${icone('envoyer')}) → <b>Partager</b> → faites défiler → « Sur l’écran d’accueil » → <b>Ajouter</b>. Connectez-vous une fois dans l’app installée : elle s’en souviendra.</p>
             <p class="discret"><b>Android</b> (Chrome) : menu ⋮ → « Installer l’application ».</p>
             <p class="discret"><b>Ordinateur</b> (Edge ou Chrome) : icône d’installation dans la barre d’adresse, ou menu → « Installer Prospect IQ ».</p>`}
         </div>
@@ -121,23 +135,33 @@ export function afficher(vue) {
   sauver('#f-coordonnees', (x) => x, 'Coordonnées enregistrées : votre QR code est à jour');
   sauver('#f-salon', (x) => ({ ...x, besoins_liste: x.besoins_liste.split(',').map((b) => b.trim()).filter(Boolean) }));
   sauver('#f-email');
-  sauver('#f-pappers', (x) => x, 'Clé Pappers enregistrée');
-  sauver('#f-ia', (x) => x, 'Clé IA enregistrée');
-
-  $('#modele-defaut', vue).addEventListener('click', () => {
-    $('#f-email textarea', vue).value = MODELE_EMAIL_DEFAUT;
-  });
-  $('#tester-pappers', vue).addEventListener('click', async () => {
+  const tester = async () => {
     const token = $('#f-pappers [name=pappers_token]', vue).value.trim();
     if (!token) return toast('Collez d’abord votre clé Pappers');
     $('#credits', vue).textContent = 'Vérification…';
     try {
-      const c = await creditsPappers(token);
-      $('#credits', vue).textContent = typeof c === 'object' ? `Clé valide. ${JSON.stringify(c)}` : `Clé valide : ${c} crédits restants.`;
+      const n = lireCredits(await creditsPappers(token));
+      $('#credits', vue).textContent = n == null ? '✔ Clé valide.' : `✔ Clé valide : ${n} crédits restants.`;
     } catch (e) {
-      $('#credits', vue).textContent = e.message;
+      $('#credits', vue).textContent = `✖ ${e.message}`;
     }
+  };
+
+  // Après l'enregistrement d'une clé, on réaffiche la page pour montrer « Clé enregistrée »
+  for (const [id, message] of [['#f-pappers', 'Clé Pappers enregistrée'], ['#f-ia', 'Clé IA enregistrée']]) {
+    $(id, vue).addEventListener('submit', (e) => {
+      e.preventDefault();
+      enregistrerProfil(lire(e.target));
+      toast(message, 'ok');
+      afficher(vue);
+      if (id === '#f-pappers' && profil().pappers_token) $('#tester-pappers', vue).click();
+    });
+  }
+
+  $('#modele-defaut', vue).addEventListener('click', () => {
+    $('#f-email textarea', vue).value = MODELE_EMAIL_DEFAUT;
   });
+  $('#tester-pappers', vue).addEventListener('click', tester);
   $('#activer-notif', vue)?.addEventListener('click', async () => {
     await activerNotifications();
     afficher(vue);
