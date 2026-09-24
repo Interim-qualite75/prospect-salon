@@ -350,3 +350,62 @@ details.carte summary { cursor: pointer; font-weight: 600; }
 .synthese p { margin: 6px 0; }
 .synthese ul { margin: 0; padding-left: 20px; }
 .synthese li { margin: 3px 0; }
+/* ---------- Propositions commerciales (repris du générateur) ---------- */
+.barre-prop { position: sticky; top: 56px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); }
+.barre-prop select { width: auto; }
+.onglets-prop { margin-bottom: 12px; }
+.colonnes-prop { display: grid; grid-template-columns: minmax(340px, 42%) 1fr; gap: 16px; align-items: start; }
+.saisie-prop .bloc-prop summary { cursor: pointer; font-weight: 650; color: var(--bleu-fonce); }
+.saisie-prop .bloc-prop[open] summary { margin-bottom: 10px; }
+.ligne-coche { display: flex; align-items: center; gap: 8px; font-weight: 550; }
+.ligne-coche input { width: auto; }
+.table-defile { overflow-x: auto; }
+table.paliers { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+table.paliers th { text-align: left; font-size: 0.72rem; color: var(--texte-2); padding: 0 4px 6px; }
+table.paliers td { padding: 2px 4px 2px 0; }
+table.paliers input { min-width: 64px; padding: 6px; }
+table.paliers input.coef { font-weight: 700; color: var(--bleu-fonce); }
+table.paliers small { display: block; font-size: 0.65rem; color: var(--texte-3); }
+.apercu-prop { position: sticky; top: 120px; max-height: calc(100vh - 140px); overflow: auto; border-radius: var(--rayon); }
+@media (min-width: 961px) { .onglets-prop { display: none; } }
+@media (max-width: 960px) {
+  .colonnes-prop { grid-template-columns: 1fr; }
+  .colonnes-prop[data-onglet-actif='saisie'] .apercu-prop, .colonnes-prop[data-onglet-actif='apercu'] .saisie-prop { display: none; }
+  .apercu-prop { position: static; max-height: none; }
+  .barre-prop { top: 52px; }
+}
+.zone-signature { width: 100%; height: auto; aspect-ratio: 3 / 1; background: #fff; border: 2px dashed var(--bord-fort); border-radius: var(--rayon-petit); touch-action: none; cursor: crosshair; }
+
+/* Le document lui-même : toujours sur fond blanc, comme sur papier */
+.doc-prop { --p-bleu: #006fb8; --p-bleu-fonce: #234670; --p-marine: #1b243e; --p-vert: #b5d062; --p-fond: #f5f7f9; --p-trait: #dce2e8; --p-texte: #22293a;
+  background: #fff; color: var(--p-texte); font-family: 'Poppins', system-ui, sans-serif; border: 1px solid var(--p-trait); border-radius: 10px; padding: 44px 48px; max-width: 760px; margin: 0 auto; overflow: hidden; }
+.doc-prop h1, .doc-prop h3 { font-family: 'Jost', 'Poppins', sans-serif; }
+.doc-prop section { margin-bottom: 22px; }
+.doc-prop h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--p-bleu-fonce); border-bottom: 1px solid var(--p-trait); padding-bottom: 6px; margin: 0 0 10px; }
+.doc-prop p { font-size: 13px; line-height: 1.6; margin: 0 0 8px; }
+.doc-prop ul { margin: 0 0 8px; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+.doc-prop table.tarif { width: 100%; border-collapse: collapse; margin: 10px 0 12px; font-size: 13px; }
+.doc-prop table.tarif th { background: var(--p-bleu); color: #fff; padding: 8px 10px; text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+.doc-prop table.tarif td { padding: 8px 10px; border-bottom: 1px solid var(--p-trait); }
+.doc-prop table.tarif tr:nth-child(even) td { background: #f8fafb; }
+.doc-prop .footer-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 26px; font-size: 12px; }
+.doc-prop .footer-sign .box { border: 1px dashed var(--p-trait); border-radius: 6px; padding: 14px; min-height: 90px; line-height: 1.6; }
+.doc-prop img.signature { display: block; max-width: 100%; height: 70px; object-fit: contain; margin-top: 6px; }
+.doc-prop .bon-accord { page-break-inside: avoid; break-inside: avoid; }
+.doc-prop .interloc { font-size: 11px; color: #5b6577; border-top: 1px solid var(--p-trait); padding-top: 10px; line-height: 1.6; }
+.doc-prop .cover { text-align: center; padding: 60px 20px 50px; margin: -44px -48px 30px; background: linear-gradient(180deg, var(--p-marine) 0%, var(--p-bleu-fonce) 100%); color: #fff; }
+.doc-prop .cover-eyebrow { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--p-vert); font-weight: 700; margin: 0 0 18px; }
+.doc-prop .cover-title { font-size: 34px; font-weight: 600; margin: 0 0 6px; line-height: 1.15; }
+.doc-prop .cover-sub { font-size: 16px; color: #c9d6e8; margin: 0 0 40px; }
+.doc-prop .cover-client { display: inline-block; border: 1px solid rgba(255,255,255,.35); border-radius: 8px; padding: 16px 28px; margin-bottom: 30px; }
+.doc-prop .cover-client .label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--p-vert); margin-bottom: 4px; }
+.doc-prop .cover-client .name { font-size: 19px; font-weight: 600; }
+.doc-prop .cover-client .addr { font-size: 12px; color: #c9d6e8; margin-top: 2px; }
+.doc-prop .cover-meta { font-size: 12px; color: #c9d6e8; line-height: 1.7; }
+.doc-prop .cover-meta strong { color: #fff; }
+@media (max-width: 600px) { .doc-prop { padding: 24px 18px; } .doc-prop .cover { margin: -24px -18px 24px; padding: 40px 14px 34px; } .doc-prop .cover-title { font-size: 26px; } }
+/* Copie hors écran servant à fabriquer le PDF (page A4, couverture sur sa propre page) */
+.impression-proposition { position: fixed; left: -10000px; top: 0; width: 794px; }
+.doc-prop.impression { width: 794px; border: 0; border-radius: 0; max-width: none; padding: 44px 48px; }
+.doc-prop.impression .cover { height: 1082px; box-sizing: border-box; margin: -44px -48px 44px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+.doc-prop.impression .cover-client { align-self: center; }

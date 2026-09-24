@@ -159,7 +159,7 @@ export async function afficher(vue) {
 }
 
 // ---------- Plein écran pour le stand ----------
-async function pleinEcran(items, depart) {
+export async function pleinEcran(items, depart = 0) {
   let i = depart;
   let verrou = null;
   const el = document.createElement('div');

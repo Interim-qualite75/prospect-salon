@@ -10,6 +10,7 @@ import * as fiche from './vues/fiche.js';
 import * as partager from './vues/partager.js';
 import * as reglages from './vues/reglages.js';
 import * as taches from './vues/taches.js';
+import * as proposition from './vues/proposition.js';
 
 const ROUTES = {
   accueil: { vue: accueil, titre: 'Accueil', menu: 'accueil' },
@@ -20,6 +21,7 @@ const ROUTES = {
   partager: { vue: partager, titre: 'Partager mes infos', menu: 'partager' },
   reglages: { vue: reglages, titre: 'Réglages', menu: 'reglages' },
   taches: { vue: taches, titre: 'Mes tâches', menu: 'accueil', retour: true },
+  proposition: { vue: proposition, titre: 'Proposition commerciale', menu: 'prospects', retour: true },
 };
 
 let nettoyage = null;

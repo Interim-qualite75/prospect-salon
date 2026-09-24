@@ -2,8 +2,9 @@
 
 import {
   etat, profil, enregistrer, supprimer, echangesDe, listeProspects, listeDocuments,
-  enregistrerPhotoCarte, urlPhotoCarte, nouvelId, listeTaches,
+  enregistrerPhotoCarte, urlPhotoCarte, nouvelId, listeTaches, listePropositions,
 } from '../donnees.js';
+import { pastilleStatut } from './proposition.js';
 import {
   $, $$, esc, icone, toast, modale, confirmer, nomComplet, dateRelative, dateCourte,
   versChampDateHeure, depuisChampDateHeure, dansJours, telecharger,
@@ -101,6 +102,7 @@ export async function afficher(vue, params, { aller, titre }) {
   let modifie = nouveau;
   const besoinsListe = [...new Set([...(moi.besoins_liste || []), ...(p.besoins || [])])];
   const historique = nouveau ? [] : echangesDe(p.id);
+  const propositions = nouveau ? [] : listePropositions(p.id);
 
   vue.innerHTML = `
     <form class="pile" id="fiche" novalidate>
@@ -191,6 +193,18 @@ export async function afficher(vue, params, { aller, titre }) {
           </section>
 
           ${!nouveau ? `
+            <section class="carte pile-s">
+              <div class="ligne"><h2 class="espace">${icone('fichier')} Propositions commerciales</h2>
+                <a class="btn petit primaire" href="#/proposition/${p.id}">${icone('plus')} Nouvelle</a></div>
+              ${propositions.length ? `<div class="liste">${propositions.map((x) => `
+                <a class="element" href="#/proposition/${p.id}/${x.id}">
+                  <span class="corps"><b>${esc(x.numero || 'Proposition')}</b>
+                    <div class="ligne" style="gap:6px;margin-top:4px">${pastilleStatut(x.statut)}
+                      <span class="tres-discret">${esc(x.envoyee_at ? `envoyée ${dateRelative(x.envoyee_at, { heure: false })}` : `créée ${dateRelative(x.created_at, { heure: false })}`)}${x.signataire ? ` · signée par ${esc(x.signataire)}` : ''}</span></div></span>
+                  ${icone('droite')}</a>`).join('')}</div>`
+                : '<p class="discret">Aucune proposition. « Nouvelle » ouvre votre générateur, déjà rempli avec ce prospect.</p>'}
+            </section>
+
             <section class="carte pile-s">
               <div class="ligne"><h2 class="espace">${icone('ok')} Tâches</h2>
                 <button type="button" class="btn petit primaire" id="ajouter-tache">${icone('plus')} Ajouter</button></div>

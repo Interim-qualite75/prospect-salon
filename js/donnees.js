@@ -44,6 +44,7 @@ export const etat = {
   echanges: new Map(),
   documents: new Map(),
   taches: new Map(),
+  propositions: new Map(),
   file: [],          // modifications en attente d'envoi
   echecs: [],        // modifications refusées par le serveur
   derniereSynchro: null,
@@ -51,7 +52,9 @@ export const etat = {
   synchroEnCours: false,
 };
 
-const TABLES = ['prospects', 'echanges', 'documents', 'taches'];
+const TABLES = ['prospects', 'echanges', 'documents', 'taches', 'propositions'];
+// Tables ajoutées après coup : tant qu'elles n'existent pas sur le serveur, on garde la copie locale
+const TABLES_RECENTES = ['taches', 'propositions'];
 const cle = (nom) => `${etat.utilisateur.id}:${nom}`;
 
 async function sauverCache() {
@@ -61,6 +64,7 @@ async function sauverCache() {
     echanges: [...etat.echanges.values()],
     documents: [...etat.documents.values()],
     taches: [...etat.taches.values()],
+    propositions: [...etat.propositions.values()],
     derniereSynchro: etat.derniereSynchro,
   });
 }
@@ -110,6 +114,11 @@ export const listeTaches = ({ prospectId, faites = false } = {}) =>
         : (RANG_PRIORITE[a.priorite] ?? 1) - (RANG_PRIORITE[b.priorite] ?? 1) ||
           (a.echeance || '9').localeCompare(b.echeance || '9'));
 
+export const listePropositions = (prospectId) =>
+  [...etat.propositions.values()]
+    .filter((x) => !prospectId || x.prospect_id === prospectId)
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
 export const listeDocuments = () =>
   [...etat.documents.values()].sort((a, b) => a.ordre - b.ordre || (a.created_at || '').localeCompare(b.created_at || ''));
 
@@ -135,6 +144,7 @@ export function supprimer(table, id) {
   if (table === 'prospects') {
     for (const e of [...etat.echanges.values()]) if (e.prospect_id === id) etat.echanges.delete(e.id);
     for (const t of [...etat.taches.values()]) if (t.prospect_id === id) etat.taches.delete(t.id);
+    for (const x of [...etat.propositions.values()]) if (x.prospect_id === id) etat.propositions.delete(x.id);
   }
   // Inutile d'envoyer une création qui n'est jamais partie
   etat.file = etat.file.filter((op) => !(op.table === table && op.id === id && op.type === 'upsert'));
@@ -205,7 +215,7 @@ export function envoyer() {
           etat.file.shift();
         } catch (e) {
           if (erreurReseau(e)) break;
-          if (op.table === 'taches' && tableAbsente(e)) enAttente.push(op);
+          if (TABLES_RECENTES.includes(op.table) && tableAbsente(e)) enAttente.push(op);
           else {
             console.error('Envoi refusé', op, e);
             etat.echecs.push({ op, erreur: e.message || String(e), le: new Date().toISOString() });
@@ -261,21 +271,23 @@ export async function synchroniser() {
   signaler('synchro');
   try {
     await envoyer();
-    const [pr, ec, dc, pf, ta] = await Promise.all([
+    const [pr, ec, dc, pf, ...recentes] = await Promise.all([
       supabase.from('prospects').select('*'),
       supabase.from('echanges').select('*'),
       supabase.from('documents').select('*'),
       supabase.from('profil').select('*').maybeSingle(),
-      supabase.from('taches').select('*'),
+      ...TABLES_RECENTES.map((t) => supabase.from(t).select('*')),
     ]);
     for (const r of [pr, ec, dc, pf]) if (r.error) throw r.error;
     etat.prospects = new Map(pr.data.map((r) => [r.id, r]));
     etat.echanges = new Map(ec.data.map((r) => [r.id, r]));
     etat.documents = new Map(dc.data.map((r) => [r.id, r]));
-    // Table « taches » absente tant que ajout-taches.sql n'a pas été exécuté : on garde la copie locale
-    etat.tachesServeur = !ta.error;
-    if (!ta.error) etat.taches = new Map(ta.data.map((r) => [r.id, r]));
-    else console.warn('Tâches non synchronisées', ta.error.message);
+    TABLES_RECENTES.forEach((t, i) => {
+      const r = recentes[i];
+      if (t === 'taches') etat.tachesServeur = !r.error;
+      if (!r.error) etat[t] = new Map(r.data.map((x) => [x.id, x]));
+      else console.warn(`${t} non synchronisées`, r.error.message);
+    });
     if (pf.data) etat.profil = pf.data;
     else if (!etat.profil) enregistrerProfil({});   // premier lancement : crée le profil par défaut
     // Réapplique ce qui n'est pas encore parti
