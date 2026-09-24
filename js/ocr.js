@@ -202,6 +202,143 @@ export function analyserTexte(texte) {
   return r;
 }
 
+// ---------- QR code imprimé sur la carte (gratuit, sans réseau une fois chargé) ----------
+const JSQR = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+
+function chargerJsQR() {
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+  return new Promise((ok, ko) => {
+    const s = document.createElement('script');
+    s.src = JSQR;
+    s.onload = () => ok(window.jsQR);
+    s.onerror = () => ko(new Error('Lecteur de QR code indisponible'));
+    document.head.append(s);
+  });
+}
+
+// Renvoie le texte du QR code trouvé sur la photo, ou '' s'il n'y en a pas.
+// On essaie deux tailles : un petit QR se lit mieux en grand, un QR flou mieux en petit.
+export async function lireQR(image) {
+  const jsQR = await chargerJsQR().catch(() => null);
+  if (!jsQR) return '';
+  for (const taille of [1600, 900]) {
+    const c = redimensionner(image, taille);
+    const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+    const r = jsQR(data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
+    if (r?.data) return r.data.trim();
+  }
+  return '';
+}
+
+function telNational(s) {
+  let t = String(s).replace(/[^\d+]/g, '');
+  if (t.startsWith('00')) t = '+' + t.slice(2);
+  if (t.startsWith('+33')) t = '0' + t.slice(3).replace(/^0/, '');
+  return /^0\d{9}$/.test(t) ? formaterTel(t) : String(s).trim();
+}
+
+function decoderQP(s) {
+  const octets = [];
+  s.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})|([\s\S])/gi, (m, hex, c) => {
+    if (hex) octets.push(parseInt(hex, 16));
+    else octets.push(...new TextEncoder().encode(c));
+  });
+  return new TextDecoder().decode(new Uint8Array(octets));
+}
+
+const deseche = (s) => s.replace(/\\n/gi, ' ').replace(/\\([,;:\\])/g, '$1').trim();
+
+function ajouterTel(r, valeur, types = '') {
+  const t = telNational(valeur);
+  if (!t || /fax/i.test(types)) return;
+  const mobile = /cell|mobile/i.test(types) || /^0[67]/.test(t.replace(/\s/g, ''));
+  if (mobile) r.tel_mobile ??= t;
+  else r.tel_fixe ??= t;
+}
+
+function ajouterLien(r, url) {
+  const u = url.trim();
+  if (/linkedin\.com/i.test(u)) r.notes = [r.notes, `LinkedIn : ${u}`].filter(Boolean).join('\n');
+  else r.site ??= u.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
+function analyserVCard(texte) {
+  const r = {};
+  const lignes = texte.replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '').split('\n');
+  for (const ligne of lignes) {
+    const i = ligne.indexOf(':');
+    if (i < 0) continue;
+    const [nomBrut, ...params] = ligne.slice(0, i).split(';');
+    const cle = nomBrut.replace(/^item\d+\./i, '').toUpperCase();
+    const p = params.join(';');
+    let v = ligne.slice(i + 1);
+    if (/QUOTED-PRINTABLE/i.test(p)) v = decoderQP(v);
+    if (cle === 'N') {
+      const [nom, prenom] = v.split(';').map(deseche);
+      if (nom) r.nom = nom.toUpperCase();
+      if (prenom) r.prenom = majusculeInitiale(prenom);
+    } else if (cle === 'FN' && !r.nom) {
+      const mots = deseche(v).split(/\s+/);
+      if (mots.length > 1) {
+        r.prenom = majusculeInitiale(mots[0]);
+        r.nom = mots.slice(1).join(' ').toUpperCase();
+      }
+    } else if (cle === 'ORG') r.societe = deseche(v.split(';')[0]);
+    else if (cle === 'TITLE' || cle === 'ROLE') r.fonction ??= deseche(v);
+    else if (cle === 'EMAIL') r.email ??= deseche(v).toLowerCase();
+    else if (cle === 'TEL') ajouterTel(r, v.replace(/^tel:/i, ''), p);
+    else if (cle === 'URL') ajouterLien(r, deseche(v));
+    else if (cle === 'ADR') {
+      const [, , rue, ville, , cp] = v.split(';').map(deseche);
+      if (rue) r.adresse ??= rue;
+      if (ville) r.ville ??= majusculeInitiale(ville);
+      if (cp) r.code_postal ??= cp;
+    }
+  }
+  return r;
+}
+
+// MECARD:N:NOM,Prénom;TEL:...;EMAIL:...;;
+function analyserMeCard(texte) {
+  const r = {};
+  for (const morceau of texte.replace(/^MECARD:/i, '').split(';')) {
+    const i = morceau.indexOf(':');
+    if (i < 0) continue;
+    const cle = morceau.slice(0, i).toUpperCase();
+    const v = deseche(morceau.slice(i + 1));
+    if (cle === 'N') {
+      const [nom, prenom] = v.split(',').map((x) => x.trim());
+      if (nom) r.nom = nom.toUpperCase();
+      if (prenom) r.prenom = majusculeInitiale(prenom);
+    } else if (cle === 'ORG') r.societe = v;
+    else if (cle === 'TITLE') r.fonction = v;
+    else if (cle === 'EMAIL') r.email ??= v.toLowerCase();
+    else if (cle === 'TEL') ajouterTel(r, v);
+    else if (cle === 'URL') ajouterLien(r, v);
+    else if (cle === 'ADR') r.adresse ??= v;
+  }
+  return r;
+}
+
+// Transforme le contenu du QR code en champs de fiche
+export function analyserQR(texte) {
+  if (!texte) return {};
+  if (/BEGIN:VCARD/i.test(texte)) return analyserVCard(texte);
+  if (/^MECARD:/i.test(texte)) return analyserMeCard(texte);
+  if (/^mailto:/i.test(texte)) return { email: texte.slice(7).split('?')[0].toLowerCase() };
+  if (/^tel:/i.test(texte)) {
+    const r = {};
+    ajouterTel(r, texte.slice(4));
+    return r;
+  }
+  if (/^(https?:\/\/|www\.)/i.test(texte)) {
+    const r = {};
+    ajouterLien(r, texte);
+    return r;
+  }
+  return {};
+}
+
 // ---------- Option IA (Claude) ----------
 const SCHEMA_CARTE = {
   type: 'object',
@@ -229,6 +366,7 @@ async function clientClaude(cle) {
 
 function texteReponse(msg) {
   if (msg.stop_reason === 'refusal') throw new Error("L'IA n'a pas pu traiter cette demande");
+  if (msg.stop_reason === 'max_tokens') throw new Error("Réponse de l'IA incomplète");
   return msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
 
@@ -238,10 +376,11 @@ export async function lireCarteIA(image, cle) {
   const client = await clientClaude(cle);
   const msg = await client.beta.messages.create({
     model: 'claude-opus-5',
-    max_tokens: 2000,
+    max_tokens: 16000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    output_config: { format: { type: 'json_schema', schema: SCHEMA_CARTE } },
+    // Lecture simple : effort bas = plus rapide et moins cher, sans perte de qualité
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA_CARTE } },
     messages: [
       {
         role: 'user',

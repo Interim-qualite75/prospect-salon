@@ -2,7 +2,7 @@
 
 import { profil, enregistrerProfil } from '../donnees.js';
 import { $, esc, icone, toast } from '../ui.js';
-import { chargerImage, lireTexte, analyserTexte, lireCarteIA, redimensionner, canvasEnBlob } from '../ocr.js';
+import { chargerImage, lireTexte, analyserTexte, lireCarteIA, lireQR, analyserQR, redimensionner, canvasEnBlob } from '../ocr.js';
 import { definirBrouillon } from './fiche.js';
 
 export function afficher(vue, params, { aller }) {
@@ -49,6 +49,12 @@ export function afficher(vue, params, { aller }) {
       const photoBlob = await canvasEnBlob(redimensionner(image, 1400));
       let champs = {};
       let ocr_texte = '';
+
+      // 1. QR code imprimé sur la carte : le plus fiable quand il contient une fiche contact
+      progression(0.1, 'Recherche d’un QR code…');
+      const qr = await lireQR(image).catch(() => '');
+      const champsQR = analyserQR(qr);
+
       if (moi.ia_cle && navigator.onLine) {
         progression(0.4, "Lecture de la carte par l'IA…");
         try {
@@ -62,6 +68,10 @@ export function afficher(vue, params, { aller }) {
         ocr_texte = await lireTexte(image, progression);
         champs = analyserTexte(ocr_texte);
       }
+      // Le QR code l'emporte ; la lecture de la carte complète ce qu'il ne donne pas
+      const notes = [champsQR.notes, champs.notes].filter(Boolean).join('\n');
+      champs = { ...champs, ...champsQR, ...(notes && { notes }) };
+      if (qr) ocr_texte = `QR code : ${qr}${ocr_texte ? `\n\n${ocr_texte}` : ''}`;
       progression(1, 'Terminé');
       definirBrouillon({ champs, photoBlob, ocr_texte });
       aller('nouveau');

@@ -2,7 +2,7 @@
 // Les fichiers de l'app sont pris sur le réseau en priorité (donc toujours à jour),
 // et la copie locale sert quand il n'y a pas de connexion (salon sans Wi-Fi).
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE_APP = `app-${VERSION}`;
 const CACHE_LIBS = 'bibliotheques';
 
