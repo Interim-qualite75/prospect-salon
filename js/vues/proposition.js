@@ -6,6 +6,7 @@ import { supabase, etat, profil, enregistrerProfil, enregistrer, listePropositio
 import { $, $$, esc, icone, toast, modale, confirmer, nomComplet, telecharger, partagerFichier } from '../ui.js';
 import { pleinEcran } from './partager.js';
 import { dateDansJours } from './taches.js';
+import { ouvrirEmail } from '../outils.js';
 
 const HTML2PDF = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js';
 
@@ -799,7 +800,7 @@ async function envoyer(p, s, prop, miseAJour) {
       const premierEnvoi = !dejaNote;
       dejaNote = true;
       if (choix === 'qr') pleinEcran([{ texteQR: lien, titre: `Proposition ${s.numeroDevis}`, type: 'document' }]);
-      if (choix === 'email') location.href = `mailto:${encodeURIComponent(p.email || '')}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+      if (choix === 'email') ouvrirEmail({ a: p.email || '', sujet, corps }, moi.messagerie);
       if (choix === 'partage') await partagerFichier(pdf, nomFichier(s, 'pdf'), corps);
       if (choix === 'copier') {
         await navigator.clipboard.writeText(lien);

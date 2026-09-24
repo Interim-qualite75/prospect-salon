@@ -253,7 +253,8 @@ a.element:hover { background: var(--surface-2); }
 .bloc-entreprise dd { margin: 0; }
 .resultat-entreprise { display: block; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--bord); border-radius: var(--rayon-petit); background: var(--surface); cursor: pointer; }
 .resultat-entreprise:hover { border-color: var(--bleu); }
-.actions-fiche { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.actions-fiche { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.actions-fiche .btn { white-space: nowrap; justify-content: center; }
 .barre-enregistrer {
   position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 8px); z-index: 10;
   display: flex; gap: 8px; padding: 10px; border-radius: var(--rayon); background: var(--surface); border: 1px solid var(--bord); box-shadow: 0 6px 20px rgba(16, 24, 40, 0.12);
@@ -409,3 +410,8 @@ table.paliers small { display: block; font-size: 0.65rem; color: var(--texte-3);
 .doc-prop.impression { width: 794px; border: 0; border-radius: 0; max-width: none; padding: 44px 48px; }
 .doc-prop.impression .cover { height: 1082px; box-sizing: border-box; margin: -44px -48px 44px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
 .doc-prop.impression .cover-client { align-self: center; }
+/* ---------- Sélection multiple et appel direct ---------- */
+.barre-selection { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 8px); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--bleu); border-radius: var(--rayon); box-shadow: 0 6px 20px rgba(16, 24, 40, 0.18); }
+@media (min-width: 960px) { .barre-selection { bottom: 16px; } }
+.element.selectionne { background: var(--bleu-clair); }
+.btn-icone.appel { color: var(--vert); }

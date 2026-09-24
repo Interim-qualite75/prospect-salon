@@ -174,7 +174,31 @@ export function signature(moi) {
   ].filter(Boolean).join('\n');
 }
 
-export function lienEmailSuivi(p, moi, documents) {
+// ---------- Ouverture d'un email dans la messagerie choisie (Réglages) ----------
+export const MESSAGERIES = {
+  outlook: 'Outlook (application)',
+  outlook_web: 'Outlook sur le web (navigateur)',
+  gmail: 'Gmail',
+  defaut: "Messagerie par défaut de l'appareil",
+};
+const estMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+export function lienEmail({ a = '', sujet = '', corps = '' }, messagerie = 'outlook') {
+  const q = (o) => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  // Application Outlook du téléphone ; sur ordinateur, Outlook reçoit les liens « mailto » s'il est la messagerie par défaut
+  if (messagerie === 'outlook' && estMobile()) return `ms-outlook://compose?${q({ to: a, subject: sujet, body: corps })}`;
+  if (messagerie === 'outlook_web') return `https://outlook.office.com/mail/deeplink/compose?${q({ to: a, subject: sujet, body: corps })}`;
+  if (messagerie === 'gmail') return `https://mail.google.com/mail/?view=cm&fs=1&${q({ to: a, su: sujet, body: corps })}`;
+  return `mailto:${encodeURIComponent(a).replace(/%40/g, '@')}?${q({ subject: sujet, body: corps })}`;
+}
+
+export function ouvrirEmail(message, messagerie) {
+  const lien = lienEmail(message, messagerie);
+  if (lien.startsWith('https:')) window.open(lien, '_blank', 'noopener');
+  else location.href = lien;
+}
+
+export function emailSuivi(p, moi, documents) {
   const docs = documents.length
     ? documents.map((d) => `- ${d.titre} : ${d.url_publique}`).join('\n')
     : '- (aucun document pour le moment)';
@@ -187,7 +211,7 @@ export function lienEmailSuivi(p, moi, documents) {
     .replaceAll('{signature}', signature(moi))
     .replace(/Bonjour ,/, 'Bonjour,');
   const sujet = `${moi.societe || 'Intérim Qualité'} – suite à notre rencontre${p.salon ? ` (${p.salon})` : ''}`;
-  return `mailto:${encodeURIComponent(p.email || '')}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+  return { a: p.email || '', sujet, corps };
 }
 
 // ============================================================

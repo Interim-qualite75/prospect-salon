@@ -10,7 +10,7 @@ import {
   versChampDateHeure, depuisChampDateHeure, dansJours, telecharger,
 } from '../ui.js';
 import { rechercher, completer, formaterEuros, secteurDe, trouverEntreprise } from '../entreprise.js';
-import { brancherDictee, dicteeDisponible, fichierIcs, lienOutlook, lienGoogleAgenda, lienEmailSuivi, ETAPES } from '../outils.js';
+import { brancherDictee, dicteeDisponible, fichierIcs, lienOutlook, lienGoogleAgenda, emailSuivi, ouvrirEmail, ETAPES } from '../outils.js';
 import { mettreEnFormeCR } from '../ocr.js';
 import { creerVCard, nomFichierVCard, telInternational } from '../vcard.js';
 import {
@@ -109,16 +109,22 @@ export async function afficher(vue, params, { aller, titre }) {
       ${nouveau && (photoBlob || p.ocr_texte) ? `<div class="bandeau">${icone('ok')}<div>Carte lue. Vérifiez les champs avant d'enregistrer.</div></div>` : ''}
 
       ${!nouveau ? `
+        ${p.supprime_at ? `<div class="bandeau alerte">${icone('poubelle')}<div class="espace">Fiche dans la corbeille : elle sera effacée pour de bon ${esc(dateRelative(new Date(new Date(p.supprime_at).getTime() + 30 * 86400000).toISOString(), { heure: false }))}.</div>
+            <button type="button" class="btn petit" data-action="restaurer">Restaurer</button></div>`
+          : p.archive_at ? `<div class="bandeau">${icone('fichier')}<div class="espace">Fiche archivée le ${esc(dateCourte(p.archive_at))}.</div>
+            <button type="button" class="btn petit" data-action="desarchiver">Désarchiver</button></div>` : ''}
         <div class="carte">
           <div class="ligne">
             <span class="avatar">${esc((p.prenom?.[0] || '') + (p.nom?.[0] || '') || '?')}</span>
             <div class="espace"><h1>${esc(nomComplet(p))}</h1>
               <p class="discret">${esc([p.fonction, p.societe].filter(Boolean).join(' · '))}</p></div>
+            <button type="button" class="btn-icone" id="menu-fiche" aria-label="Plus d'actions" title="Plus d'actions"><span aria-hidden="true" style="font-size:1.6rem;line-height:1;font-weight:700">⋮</span></button>
           </div>
           <div class="actions-fiche" style="margin-top:14px">
-            ${p.tel_mobile || p.tel_fixe ? `<a class="btn petit" href="tel:${esc(telInternational(p.tel_mobile || p.tel_fixe))}">${icone('tel')} Appeler</a>` : ''}
+            ${p.tel_mobile ? `<a class="btn petit primaire" href="tel:${esc(telInternational(p.tel_mobile))}">${icone('mobile')} Appeler le mobile</a>` : ''}
+            ${p.tel_fixe ? `<a class="btn petit ${p.tel_mobile ? '' : 'primaire'}" href="tel:${esc(telInternational(p.tel_fixe))}">${icone('tel')} Appeler le fixe</a>` : ''}
             ${p.tel_mobile ? `<a class="btn petit" href="sms:${esc(telInternational(p.tel_mobile))}">${icone('sms')} SMS</a>` : ''}
-            ${p.email ? `<a class="btn petit" href="mailto:${esc(p.email)}">${icone('mail')} Email</a>` : ''}
+            ${p.email ? `<button type="button" class="btn petit" data-action="email">${icone('mail')} Email</button>` : ''}
             <button type="button" class="btn petit" id="email-suivi">${icone('fichier')} Email de suivi</button>
             <button type="button" class="btn petit" id="vers-contacts">${icone('contact')} Dans mes contacts</button>
             <button type="button" class="btn petit" id="synthese">${icone('ia')} Synthèse</button>
@@ -224,7 +230,7 @@ export async function afficher(vue, params, { aller, titre }) {
                   </div>`).join('') : '<p class="discret">Aucun compte rendu pour le moment.</p>'}
               </div>
             </section>
-            <button type="button" class="btn danger" id="supprimer">${icone('poubelle')} Supprimer cette fiche</button>` : ''}
+            <button type="button" class="btn danger" id="supprimer">${icone('poubelle')} ${p.supprime_at ? 'Effacer définitivement' : 'Mettre à la corbeille'}</button>` : ''}
         </div>
       </div>
 
@@ -403,7 +409,7 @@ export async function afficher(vue, params, { aller, titre }) {
   // Actions d'une fiche existante
   $('#email-suivi', vue)?.addEventListener('click', () => {
     const q = lireFormulaire();
-    location.href = lienEmailSuivi(q, moi, listeDocuments());
+    ouvrirEmail(emailSuivi(q, moi, listeDocuments()), moi.messagerie);
     enregistrer('echanges', { prospect_id: p.id, type: 'email', contenu: 'Email de suivi envoyé avec les documents', date_echange: new Date().toISOString() });
   });
   $('#vers-contacts', vue)?.addEventListener('click', () => {
@@ -417,12 +423,69 @@ export async function afficher(vue, params, { aller, titre }) {
       afficher(vue, params, { aller, titre });
     }
   });
-  $('#supprimer', vue)?.addEventListener('click', async () => {
-    if (!(await confirmer(`Supprimer définitivement la fiche de ${nomComplet(p)} et ses comptes rendus ?`, { ok: 'Supprimer', danger: true }))) return;
-    supprimer('prospects', p.id);
-    modifie = false;
-    toast('Fiche supprimée');
-    aller('prospects');
+  // Archivage, corbeille, duplication… (menu ⋮ et bandeaux)
+  const agir = async (action) => {
+    const actuel = etat.prospects.get(p.id) || p;
+    const maj = (champs, message) => {
+      if (modifie) sauver({ silencieux: true });
+      enregistrer('prospects', { ...(etat.prospects.get(p.id) || actuel), ...champs });
+      modifie = false;
+      toast(message, 'ok');
+    };
+    if (action === 'email') ouvrirEmail({ a: actuel.email }, moi.messagerie);
+    if (action === 'proposition') aller(`proposition/${p.id}`);
+    if (action === 'synthese') syntheseProspect(lireFormulaire());
+    if (action === 'contacts') $('#vers-contacts', vue).click();
+    if (action === 'dupliquer') {
+      // Même entreprise, nouveau contact (ex. un collègue rencontré sur le même stand)
+      const { societe, siren, entreprise, site, adresse, code_postal, ville, tel_fixe, salon } = lireFormulaire();
+      definirBrouillon({ champs: { societe, siren, entreprise, site, adresse, code_postal, ville, tel_fixe, salon } });
+      aller('nouveau');
+      toast('Fiche dupliquée : saisissez le nouveau contact');
+    }
+    if (action === 'archiver') {
+      maj({ archive_at: new Date().toISOString() }, 'Fiche archivée');
+      aller('prospects');
+    }
+    if (action === 'desarchiver') {
+      maj({ archive_at: null }, 'Fiche remise dans vos prospects');
+      afficher(vue, params, { aller, titre });
+    }
+    if (action === 'corbeille') {
+      if (!(await confirmer(`Mettre la fiche de ${nomComplet(actuel)} à la corbeille ? Vous pourrez la restaurer pendant 30 jours.`, { ok: 'Mettre à la corbeille', danger: true }))) return;
+      maj({ supprime_at: new Date().toISOString() }, 'Fiche mise à la corbeille (30 jours pour la restaurer)');
+      aller('prospects');
+    }
+    if (action === 'restaurer') {
+      maj({ supprime_at: null }, 'Fiche restaurée');
+      afficher(vue, params, { aller, titre });
+    }
+    if (action === 'effacer') {
+      if (!(await confirmer(`Effacer DÉFINITIVEMENT la fiche de ${nomComplet(actuel)}, ses comptes rendus, tâches et propositions ? C'est irréversible.`, { ok: 'Effacer définitivement', danger: true }))) return;
+      supprimer('prospects', p.id);
+      modifie = false;
+      toast('Fiche effacée définitivement');
+      aller('prospects');
+    }
+  };
+  $$('[data-action]', vue).forEach((b) => b.addEventListener('click', () => agir(b.dataset.action)));
+  $('#supprimer', vue)?.addEventListener('click', () => agir(p.supprime_at ? 'effacer' : 'corbeille'));
+  $('#menu-fiche', vue)?.addEventListener('click', async () => {
+    const choix = [
+      ['proposition', 'fichier', 'Nouvelle proposition commerciale'],
+      ['synthese', 'ia', 'Synthèse du prospect'],
+      ['dupliquer', 'contact', 'Dupliquer (même entreprise, autre contact)'],
+      ['contacts', 'telecharger', 'Ajouter à mes contacts'],
+      p.archive_at ? ['desarchiver', 'retour', 'Désarchiver'] : ['archiver', 'fichier', 'Archiver'],
+      p.supprime_at ? ['restaurer', 'retour', 'Restaurer depuis la corbeille'] : ['corbeille', 'poubelle', 'Mettre à la corbeille'],
+      ...(p.supprime_at ? [['effacer', 'poubelle', 'Effacer définitivement']] : []),
+    ];
+    const { valeur } = await modale({
+      titre: nomComplet(p),
+      contenu: `<div class="pile-s">${choix.map(([v, ic, lib]) =>
+        `<button class="btn large ${['corbeille', 'effacer'].includes(v) ? 'danger' : ''}" value="${v}" style="justify-content:flex-start">${icone(ic)} ${lib}</button>`).join('')}</div>`,
+    });
+    if (valeur) agir(valeur);
   });
 
   function lireFormulaire() {

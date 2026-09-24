@@ -3,6 +3,7 @@
 import { etat, enregistrer, supprimer, listeTaches, listeProspects } from '../donnees.js';
 import { $$, esc, icone, toast, modale, confirmer, nomComplet, dateRelative, debutJour } from '../ui.js';
 import { PRIORITES } from '../syntheses.js';
+import { telInternational } from '../vcard.js';
 
 // Date locale « AAAA-MM-JJ » dans n jours
 export function dateDansJours(n) {
@@ -29,6 +30,7 @@ export function ligneTache(t, { avecProspect = true } = {}) {
           ${avecProspect && p ? `<a class="tres-discret" href="#/prospect/${p.id}">${esc(nomComplet(p))}${p.societe && p.prenom ? ` · ${esc(p.societe)}` : ''}</a>` : ''}
         </div>
       </span>
+      ${p && (p.tel_mobile || p.tel_fixe) && !t.faite ? `<a class="btn-icone appel" href="tel:${esc(telInternational(p.tel_mobile || p.tel_fixe))}" aria-label="Appeler ${esc(nomComplet(p))}" title="Appeler">${icone('tel')}</a>` : ''}
       <button type="button" class="btn-icone" data-modifier="${t.id}" aria-label="Modifier la tâche">${icone('crayon')}</button>
     </div>`;
 }

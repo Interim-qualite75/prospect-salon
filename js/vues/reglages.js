@@ -3,7 +3,7 @@
 import { supabase, etat, profil, enregistrerProfil, listeProspects, echangesDe, synchroniser, reessayerEchecs } from '../donnees.js';
 import { $, esc, icone, toast, telecharger, dateRelative, estIOS, estAppInstallee } from '../ui.js';
 import { creditsPappers } from '../entreprise.js';
-import { exportExcel, exportVCards, MODELE_EMAIL_DEFAUT } from '../outils.js';
+import { exportExcel, exportVCards, MODELE_EMAIL_DEFAUT, MESSAGERIES, ouvrirEmail } from '../outils.js';
 import { notificationsPossibles, activerNotifications } from '../relances.js';
 
 const champ = (nom, libelle, valeur, { type = 'text', auto = 'off', ph = '', mode = '' } = {}) => `
@@ -21,6 +21,9 @@ function lireCredits(c) {
   const restants = Object.entries(c).filter(([k, v]) => /restant/i.test(k) && typeof v === 'number');
   return restants.length ? restants.reduce((s, [, v]) => s + v, 0) : null;
 }
+
+// Sauvegarde complète : fiches actives et archivées (pas la corbeille)
+const horsCorbeille = () => listeProspects({ vue: 'tous' }).filter((p) => !p.supprime_at);
 
 export function afficher(vue) {
   const moi = profil();
@@ -51,6 +54,17 @@ export function afficher(vue) {
           ${champ('salon_en_cours', 'Salon en cours (ajouté automatiquement aux nouvelles fiches)', moi.salon_en_cours, { ph: "Salon de l'emploi Paris 2026" })}
           ${champ('besoins_liste', 'Besoins proposés sur les fiches (séparés par des virgules)', (moi.besoins_liste || []).join(', '))}
           <button class="btn" type="submit">${icone('ok')} Enregistrer</button>
+        </form>
+
+        <form class="carte pile-s" id="f-messagerie">
+          <h2>${icone('mail')} Ma messagerie</h2>
+          <p class="discret">Les emails (suivi, propositions, synthèses) s'ouvrent déjà remplis dans cette messagerie.</p>
+          <label class="champ"><span>Ouvrir mes emails avec</span>
+            <select name="messagerie">${Object.entries(MESSAGERIES).map(([k, v]) =>
+              `<option value="${k}" ${(moi.messagerie || 'outlook') === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+          <p class="tres-discret">Outlook (application) : sur le téléphone, l'app Outlook s'ouvre directement. Sur le PC, Outlook doit être la messagerie par défaut de Windows (Paramètres → Applications → Applications par défaut → « MAILTO » → Outlook).</p>
+          <div class="ligne"><button class="btn" type="submit">${icone('ok')} Enregistrer</button>
+            <button class="btn fantome" type="button" id="tester-messagerie">Essayer</button></div>
         </form>
 
         <form class="carte pile-s" id="f-email">
@@ -135,6 +149,10 @@ export function afficher(vue) {
   sauver('#f-coordonnees', (x) => x, 'Coordonnées enregistrées : votre QR code est à jour');
   sauver('#f-salon', (x) => ({ ...x, besoins_liste: x.besoins_liste.split(',').map((b) => b.trim()).filter(Boolean) }));
   sauver('#f-email');
+  sauver('#f-messagerie', (x) => x, 'Messagerie enregistrée');
+  $('#tester-messagerie', vue).addEventListener('click', () =>
+    ouvrirEmail({ a: moi.email || '', sujet: 'Essai Prospect IQ', corps: 'Si vous lisez ce message dans votre messagerie, le réglage fonctionne.' },
+      $('#f-messagerie [name=messagerie]', vue).value));
   const tester = async () => {
     const token = $('#f-pappers [name=pappers_token]', vue).value.trim();
     if (!token) return toast('Collez d’abord votre clé Pappers');
@@ -182,8 +200,8 @@ export function afficher(vue) {
     afficher(vue);
   });
   $('#excel', vue).addEventListener('click', () =>
-    telecharger(exportExcel(listeProspects(), echangesDe), `prospects-${new Date().toISOString().slice(0, 10)}.csv`));
-  $('#vcf', vue).addEventListener('click', () => telecharger(exportVCards(listeProspects()), 'contacts-prospects.vcf'));
+    telecharger(exportExcel(horsCorbeille(), echangesDe), `prospects-${new Date().toISOString().slice(0, 10)}.csv`));
+  $('#vcf', vue).addEventListener('click', () => telecharger(exportVCards(horsCorbeille()), 'contacts-prospects.vcf'));
   $('#changer-mdp', vue).addEventListener('click', async () => {
     const { error } = await supabase.auth.resetPasswordForEmail(etat.utilisateur.email, { redirectTo: location.origin + location.pathname });
     toast(error ? `Erreur : ${error.message}` : 'Un email vous a été envoyé pour changer le mot de passe', error ? 'erreur' : 'ok');

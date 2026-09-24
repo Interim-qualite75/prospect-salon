@@ -95,8 +95,20 @@ export function arreter() {
 }
 
 // ---------- Lecture ----------
-export const listeProspects = () =>
-  [...etat.prospects.values()].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+// Par défaut, les fiches actives seulement ; « archives » ou « corbeille » pour les autres
+export const etatFiche = (p) => (p.supprime_at ? 'corbeille' : p.archive_at ? 'archives' : 'actifs');
+export const listeProspects = ({ vue = 'actifs' } = {}) =>
+  [...etat.prospects.values()]
+    .filter((p) => vue === 'tous' || etatFiche(p) === vue)
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
+// Corbeille : une fiche y reste 30 jours, puis elle est effacée pour de bon
+const DUREE_CORBEILLE = 30 * 86400000;
+function viderCorbeilleAncienne() {
+  for (const p of listeProspects({ vue: 'corbeille' })) {
+    if (Date.now() - new Date(p.supprime_at).getTime() > DUREE_CORBEILLE) supprimer('prospects', p.id);
+  }
+}
 
 export const echangesDe = (prospectId) =>
   [...etat.echanges.values()]
@@ -108,6 +120,7 @@ const RANG_PRIORITE = { urgente: 0, normale: 1, faible: 2 };
 export const listeTaches = ({ prospectId, faites = false } = {}) =>
   [...etat.taches.values()]
     .filter((t) => !!t.faite === faites && (!prospectId || t.prospect_id === prospectId))
+    .filter((t) => !etat.prospects.get(t.prospect_id)?.supprime_at)
     .sort((a, b) =>
       faites
         ? (b.faite_at || '').localeCompare(a.faite_at || '')
@@ -297,6 +310,7 @@ export async function synchroniser() {
       if (op.type === 'profil') etat.profil = op.ligne;
     }
     etat.derniereSynchro = new Date().toISOString();
+    viderCorbeilleAncienne();
     await sauverCache();
   } catch (e) {
     if (!erreurReseau(e)) console.error('Synchronisation', e);
